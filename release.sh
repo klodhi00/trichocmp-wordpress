@@ -12,6 +12,8 @@ gh release view "v$v" >/dev/null 2>&1 && { echo "v$v already released - bump the
 git diff --quiet HEAD || { echo "Commit your changes first"; exit 1; }
 git push -q origin main
 rm -rf build trichocmp.zip && mkdir -p build/trichocmp && cp trichocmp.php readme.txt build/trichocmp/
-(cd build && tar -a -c -f ../trichocmp.zip trichocmp 2>/dev/null || zip -qr ../trichocmp.zip trichocmp)
+# Real zip with forward slashes: zip(1) if present, else Windows bsdtar (Git Bash's GNU tar can't write zip).
+if command -v zip >/dev/null; then (cd build && zip -qr ../trichocmp.zip trichocmp); else (cd build && /c/Windows/System32/tar.exe -a -c -f ../trichocmp.zip trichocmp); fi
+[ "$(head -c2 trichocmp.zip)" = "PK" ] || { echo "trichocmp.zip is not a zip"; exit 1; }
 gh release create "v$v" trichocmp.zip --title "v$v" --generate-notes
 rm -rf build trichocmp.zip
