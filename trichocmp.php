@@ -3,7 +3,7 @@
  * Plugin Name:       TrichoCMP
  * Plugin URI:        https://github.com/klodhi00/trichocmp-wordpress
  * Description:       Baner zgód na cookies TrichoCMP. Wklej ID strony z panelu cookies.trichopartner.com i gotowe.
- * Version:           1.0.1
+ * Version:           1.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Trichopartner
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'TRICHOCMP_VERSION', '1.0.1' );
+define( 'TRICHOCMP_VERSION', '1.1.0' );
 define( 'TRICHOCMP_FILE', __FILE__ );
 define( 'TRICHOCMP_REPO', 'klodhi00/trichocmp-wordpress' );
 
@@ -48,6 +48,83 @@ add_action(
 		echo '<script src="' . esc_url( $api . '/cmp.js' ) . '" data-site="' . esc_attr( $id ) . '" async ' . $attrs . "></script>\n"; // phpcs:ignore WordPress.WP.EnqueuedResources
 	},
 	-1000
+);
+
+/* ------------------------------------------------------------------ server-side cookie guard */
+
+/**
+ * Some plugins set tracking cookies from PHP, in the HTML response itself (e.g. "Meta pixel for WordPress" sets
+ * _fbp for its Conversions API), before any script in the browser can react. Right before the headers go out,
+ * such Set-Cookie headers are dropped unless the visitor's TrichoCMP decision grants the matching Consent Mode
+ * signal. Rules: cookie-name regex => signal; extend with the `trichocmp_server_cookie_rules` filter.
+ */
+function trichocmp_server_cookie_rules() {
+	return (array) apply_filters(
+		'trichocmp_server_cookie_rules',
+		array(
+			'/^_fb[pc]$/'             => 'ad_storage',
+			'/^_gcl_/'                => 'ad_storage',
+			'/^(_ga|_ga_.+|_gid)$/'   => 'analytics_storage',
+		)
+	);
+}
+
+/** Signals granted by the stored decision (same cookie the banner writes; expired or malformed = none). */
+function trichocmp_granted_signals() {
+	if ( empty( $_COOKIE['tcmp_consent'] ) ) {
+		return array();
+	}
+	$d = json_decode( wp_unslash( (string) $_COOKIE['tcmp_consent'] ), true ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+	if ( ! is_array( $d ) || 1 !== ( $d['v'] ?? null ) || ! isset( $d['x'] ) || (int) $d['x'] <= time() || ! is_array( $d['m'] ?? null ) ) {
+		return array();
+	}
+	return array_map( 'strval', $d['m'] );
+}
+
+function trichocmp_filter_set_cookie_headers() {
+	$headers = headers_list();
+	$granted = null;
+	$keep    = array();
+	$dropped = false;
+	foreach ( $headers as $h ) {
+		if ( 0 !== stripos( $h, 'Set-Cookie:' ) ) {
+			continue;
+		}
+		$name = trim( strtok( substr( $h, 11 ), '=' ) );
+		$need = null;
+		foreach ( trichocmp_server_cookie_rules() as $re => $signal ) {
+			if ( preg_match( $re, $name ) ) {
+				$need = $signal;
+				break;
+			}
+		}
+		if ( null !== $need ) {
+			$granted = $granted ?? trichocmp_granted_signals();
+			if ( ! in_array( $need, $granted, true ) ) {
+				$dropped = true;
+				continue;
+			}
+		}
+		$keep[] = $h;
+	}
+	if ( $dropped ) {
+		header_remove( 'Set-Cookie' );
+		foreach ( $keep as $h ) {
+			header( $h, false );
+		}
+	}
+}
+
+add_action(
+	'init',
+	function () {
+		// admin-ajax counts too: front-end plugins set cookies through it (is_admin() is true there)
+		if ( ( is_admin() && ! wp_doing_ajax() ) || wp_doing_cron() || ! trichocmp_site_id() || ! apply_filters( 'trichocmp_enabled', true ) ) {
+			return;
+		}
+		header_register_callback( 'trichocmp_filter_set_cookie_headers' );
+	},
+	0
 );
 
 /* Keep cache/optimisation plugins away from our scripts (they would delay the banner or break Consent Mode). */
