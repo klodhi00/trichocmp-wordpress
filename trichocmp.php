@@ -3,7 +3,7 @@
  * Plugin Name:       TrichoCMP
  * Plugin URI:        https://github.com/klodhi00/trichocmp-wordpress
  * Description:       Baner zgód na cookies TrichoCMP. Wklej ID strony z panelu cookies.trichopartner.com i gotowe.
- * Version:           1.1.0
+ * Version:           1.1.1
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Trichopartner
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'TRICHOCMP_VERSION', '1.1.0' );
+define( 'TRICHOCMP_VERSION', '1.1.1' );
 define( 'TRICHOCMP_FILE', __FILE__ );
 define( 'TRICHOCMP_REPO', 'klodhi00/trichocmp-wordpress' );
 
@@ -298,6 +298,8 @@ add_action(
 
 /** Latest GitHub release with a trichocmp.zip asset, cached for 6 h. */
 function trichocmp_latest_release( $force = false ) {
+	// Dashboard → Updates → "Check again" (?force-check=1) must ask GitHub now, not reuse the 6 h cache
+	$force  = $force || ( is_admin() && ! empty( $_GET['force-check'] ) ); // phpcs:ignore WordPress.Security.NonceVerification
 	$cached = get_site_transient( 'trichocmp_release' );
 	if ( ! $force && false !== $cached ) {
 		return $cached ? $cached : null;
